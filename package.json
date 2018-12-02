@@ -1,32 +1,24 @@
 {
-  "name": "idsplit-server",
+  "name": "quilt-server",
   "version": "0.0.1",
-  "description": "Web server (and browser code) to update using idsplit",
+  "description": "Quiet live update: just (re)build HTML in the server and let it flow to users",
   "main": "index.js",
   "scripts": {
     "test": "tap --cov test*.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sandhawke/idsplit-server.git"
+    "url": "git+https://github.com/sandhawke/quilt-server.git"
   },
   "author": "Sandro Hawke (http://hawke.org/sandro)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/sandhawke/idsplit-server/issues"
+    "url": "https://github.com/sandhawke/quilt-server/issues"
   },
-  "homepage": "https://github.com/sandhawke/idsplit-server#readme",
+  "homepage": "https://github.com/sandhawke/quilt-server#readme",
   "dependencies": {
     "cheerio": "^1.0.0-rc.2",
-    "connect-sse": "^1.2.0",
     "debug": "^4.1.0",
-    "delay": "^4.1.0",
-    "escape-html-template-tag": "^1.1.0",
-    "eventemitter3": "^3.1.0",
-    "express": "^4.16.4",
-    "got": "^9.3.2",
-    "morgan": "^1.9.1",
-    "promise-memoize": "^1.2.1",
-    "sse": "0.0.8"
+    "delay": "^4.1.0"
   }
 }
