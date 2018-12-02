@@ -59,7 +59,7 @@ class Doc {
     this.ee.emit('update')
     
     // debug('set latestDoc[%s] = %O', name, this)
-    debug('set latestDoc[%s]', name)
+    debug('set latestDoc[%s]', name, this.version)
   }
 
   findVersion (v) {
@@ -143,8 +143,14 @@ m.app.get('/:doc', async (req, res) => {
 })
 
 
-function doc (...args) {
-  return new Doc(...args)
+function doc (name, text) {
+  const current = latestDoc[name]
+  if (current && current.text === text) {
+    debug('doc text has no change')
+    return current
+  } else {
+    return new Doc(name, text)
+  }
 }
 
 module.exports = { doc, Doc, appmgr: m, app: m.app }

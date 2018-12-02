@@ -1,4 +1,4 @@
-const quilt = require('.')
+const quilt = require('..')
 const delay = require('delay')
 
 async function main () {
