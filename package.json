@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/sandhawke/idsplit-server#readme",
   "dependencies": {
+    "cheerio": "^1.0.0-rc.2",
     "connect-sse": "^1.2.0",
     "debug": "^4.1.0",
     "delay": "^4.1.0",
