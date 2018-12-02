@@ -19,6 +19,7 @@
   "dependencies": {
     "connect-sse": "^1.2.0",
     "debug": "^4.1.0",
+    "delay": "^4.1.0",
     "escape-html-template-tag": "^1.1.0",
     "eventemitter3": "^3.1.0",
     "express": "^4.16.4",
