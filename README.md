@@ -6,9 +6,13 @@
 Most live-update servers are meant for developers.  This is meant from
 production use, at least small-ish scale.
 
-See test.js for an example
+Serve static files (through us or someone else).  Embed in those files
+a script tag (or we could inject it) which which causes the browser to
+open an eventstream back to use for changes.  We watch the filesystem
+for changes, and send them as they happen.
 
-Your code calls quilt.doc(docname, docHTML) whenever you've got some
-new HTML ready, like whenever the source data changes, and quilt makes
-sure any users see the updated text.  Does minimal DOM changes when
-possible, so the user shouldn't mind.
+Someday: go back to having an API, for when you don't want to go
+through the filesystem
+
+Someday: Add client side UI with pause/resume, next-prev versions,
+show versions, etc.

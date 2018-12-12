@@ -1,156 +1,136 @@
+const fs = require('fs')
+const fsp = fs.promises
+const delay = require('delay')
+const pAny = require('p-any')
+const jpatch = require('jpatch')
+const path = require('path')
 const m = require('appmgr').create()
-// const delay = require('delay')
-const debug = require('debug')('quilt')
-// const { got } = require('pagemon')
-const idsplit = require('idsplit')
-const cheerio = require('cheerio')
-const EventEmitter = require('events')
+const debug = require('debug')('quilt-server')
 
-/*
-  latestDoc['foo'] is the latest Doc object with .name === 'foo'
-*/
-const latestDoc = {}
-
-// Just a counter, but start with the time incase the server restarts
-// OR: use a hash of the text
-let ver = 1000 // (new Date()).valueOf()
-
-class Doc {
-  constructor (name, text) {
-    this.name = name
-    this.text = text
-
-    if (!this.version) {
-      this.version = (ver++).toString()
-    }
-
-    if (!this.idsplit) {
-      this.$ = cheerio.load(this.text)
-      this.idsplit = idsplit(this.$)
-      // maybe it got damaged?  seems to need this
-      this.$ = cheerio.load(this.text)
-    }
-
-    this.older = []
-    const previous = latestDoc[name]
-    if (previous) {
-      // take over the EventEmitter from the previous one
-      this.ee = previous.ee
-      delete previous.ee
-      
-      this.older.push(...previous.older)
-      this.older.unshift(previous)
-      delete previous.older
-
-      // forget about anything more than this-many versions back
-      const keepVersions = 2
-      if (this.older.length > keepVersions) {
-        this.older.splice(keepVersions, this.older.length)
-      }
-    } else {
-      this.ee = new EventEmitter()
-    }
-
-    latestDoc[name] = this
-    
-    // maybe compute the dompatch?  but what if no one's watching?
-    // let the first one compute it, and save it somewhere for others
-    // to get at, I think.
-    this.ee.emit('update')
-    
-    // debug('set latestDoc[%s] = %O', name, this)
-    debug('set latestDoc[%s]', name, this.version)
+const instances = {}
+/**
+ * Watch one file and send diffs to any streams watching it
+ */
+class FileMonitor {
+  constructor (filename) {
+    this.filename = filename
+    this.text = ''
+    this.streamCount = 0
+    this.streams = []
+    this.wake = null
+    this.watch()
+    this.loop()
+    debug('created %O', this)
   }
-
-  findVersion (v) {
-    if (this.version === v) return this
-    return this.older.find(x => x.version === v)
+  static obtain (filename) {
+    let result = instances[filename]
+    if (!result) {
+      result = new FileMonitor(filename)
+      instances[filename] = result
+    }
+    return result
+  }
+  addStream (req, res) {
+    const stream = { res, alive: true, count: ++this.streamCount }
+    debug('stream %n watching %s OPEN', stream.count, this.filename)
+    req.on('close', () => {
+      debug('stream %n watching %s CLOSED', stream.count, this.filename)
+      stream.alive = false
+    })
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache'
+    })
+    this.sendFirstPatch(stream)
+    this.streams.push(stream)
+  }
+  sendFirstPatch (stream) {
+    // Some day we can be smarter and stream.req will include some
+    // parameter indicating what version the client already has.  But
+    // for now, we'll have to start from scratch, just overwriting the
+    // whole thing.
+    const patch = {
+      jpatch: [ this.text ]
+    }
+    const patchEvent = `event: jpatch\ndata: ${JSON.stringify(patch)}\n\n`
+    stream.res.write(patchEvent)
+    debug('stream %d first event sent', stream.count)
+  }
+  clean () {
+    this.streams = this.streams.filter(s => s.alive)
+  }
+  async loop () {
+    while (true) {
+      const newText = await fsp.readFile(this.filename, 'utf8')
+      if (newText !== this.text && this.streams.length) {
+        debug('new text!')
+        const patch = {
+          jpatch: jpatch.make(this.text, newText)
+        }
+        this.text = newText
+        const patchEvent = `event: jpatch\ndata: ${JSON.stringify(patch)}\n\n`
+        this.clean()
+        this.streams.forEach(s => { s.res.write(patchEvent) })
+        debug('patches sent')
+      }
+      // use a timeout to handle the race condition where it changed
+      // between the time we read it and the now.  I don't trust that
+      // inotify events wont sometimes get dropped.
+      debug('sleeping for %s', this.filename)
+      await pAny([delay(5000), this.woken()])
+      debug('awakened for %s', this.filename)
+      this.wake = null
+    }
+  }
+  woken () {
+    return new Promise(resolve => {
+      this.wake = resolve
+    })
+  }
+  /**
+   * Call fs.watch to notice when this file changes.  When it does,
+   * call this.wake() to wake the sleeping loop() function.  This
+   * structure avoids overlapping reads which could seriously mess up
+   * the event stream.
+   */
+  watch () {
+    const opts = { persistent: false }
+    this.watcher = fs.watch(this.filename, opts, (type) => {
+      if (type === 'rename') { console.error(this.filename + ': removed?!') }
+      if (this.wake) this.wake()
+    })
   }
 }
 
-// have some lazy first doc thing?
+function sendPatchStream (fn, req, res) {
+  let mon = FileMonitor.obtain(fn)
+  mon.addStream(req, res)
+}
+
+// everything above should be refactored into patch-server
+
+const sitemap = {
+  'http://localhost:8080/static/': 'static/'
+}
 
 m.app.get('/__patches', async (req, res) => {
-  const docname = req.query.name
-  const sinceVersion = req.query.since
-  debug('__patches name=%j since=%j', docname, sinceVersion)
-  let doc = latestDoc[docname]
-  let sinceDoc = doc ? doc.findVersion(sinceVersion) : undefined
+  const u = req.query.url
+  debug('request url=%o', u)
 
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache'
-  })
-
-  // let open = true
-  req.on('close', () => {
-    console.log('CLOSED')
-    doc.ee.off('update', send)
-    // open = false
-  })
-  // setinterval sending ':\n\n' every 30s?  I think I prefer the client do that.
-
-  function sendChanges (from, to, ver) {
-    const patch = {}
-    if (from) {
-      const changes = idsplit.changes(from.idsplit, to.idsplit)
-      for (const key of changes.update) {
-        const selector = '#' + key
-        // debug('to.$ = ', to.$)
-        // debug('to.$("#p2").html() = ', to.$('#p2').html())
-        patch[selector] = to.$(selector).text()
+  for (const [prefix, dir] of Object.entries(sitemap)) {
+    if (u.startsWith(prefix)) {
+      const tail = u.slice(prefix.length)
+      const absdir = path.resolve(dir)
+      let file = path.resolve(absdir, tail)
+      if (!file.startsWith(absdir)) {
+        res.code(401).send('squirrely URL')
+        return
       }
-    } else {
-      patch[':root'] = to.text // will this wipe out the client script?
+      if (file.endsWith('/')) file = file + 'index'
+      if (!file.endsWith('.html')) file = file + '.html'
+      debug('       file=%o', file)
+      sendPatchStream(file, req, res)      
     }
-    debug('sending dompatch %j %j', to.version, patch)
-    const patchEvent = `event: dompatch
-id: ${to.version}
-data: ${JSON.stringify(patch)}\n\n`
-    res.write(patchEvent)
-    // save patchEvent for the next thread?  Or some other way to save
-    // work if we have a lot of watchers?
   }
 
-  function send () {
-    doc = latestDoc[docname]
-    sendChanges(sinceDoc, doc)
-    sinceDoc = doc
-  }
-
-  send()
-  doc.ee.on('update', send)
-
-  // req.end() on server shutdown?
 })
-
-m.app.get('/:doc', async (req, res) => {
-  const docname = req.params.doc
-  debug('doc', req.params.doc)
-  const doc = latestDoc[docname]
-  if (doc) {
-    // inject the version and script
-    const text = doc.text.replace(/<head>/, `<head>
-<script>
-  var quiltDocumentName=${JSON.stringify(docname)}
-  var quiltDocumentVersion=${JSON.stringify(doc.version)}
-</script>
-<script src="/static/quilt.js" async></script>`)
-    res.send(text)
-  } else {
-    res.status(404).send(m.H`not found, no doc "${docname}"`)
-  }
-})
-
-
-function doc (name, text) {
-  const current = latestDoc[name]
-  if (current && current.text === text) {
-    debug('doc text has no change')
-    return current
-  } else {
-    return new Doc(name, text)
-  }
-}
-
-module.exports = { doc, Doc, appmgr: m, app: m.app }

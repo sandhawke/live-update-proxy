@@ -17,9 +17,10 @@
   },
   "homepage": "https://github.com/sandhawke/quilt-server#readme",
   "dependencies": {
-    "cheerio": "^1.0.0-rc.2",
     "debug": "^4.1.0",
     "delay": "^4.1.0",
-    "emerj": "^1.0.0"
+    "jpatch": "^1.0.1",
+    "p-any": "^1.1.0",
+    "setdefault": "^1.0.1"
   }
 }

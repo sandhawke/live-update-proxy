@@ -2,3 +2,4 @@
 OLD*
 node_modules
 .nyc*
+static/d2.html
